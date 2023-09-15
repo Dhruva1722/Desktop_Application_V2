@@ -28,6 +28,10 @@ import webbrowser
 import re
 from PIL import Image
 from datetime import datetime
+import logging
+
+
+
 
 # Receive data as chunks and rebuild message.
 def data_recive(socket, size_of_header, chunk_prev_message, buffer_size=65536):
@@ -53,7 +57,8 @@ def data_recive(socket, size_of_header, chunk_prev_message, buffer_size=65536):
         newMsg = chunk_prev_message
         # print(f'newMsg {newMsg}')
         chunk_prev_message = bytes()
-    except (ValueError):
+    except (ValueError) as e:
+        #logger.error(f"An error occurred in data_recive : {e}")
         pass    
 
     if msgSize:
@@ -190,7 +195,7 @@ def receive_and_put_in_list(client_socket, jpeg_list):
                 chunk_prev_message = message[1]
     except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError) as e:
         print(e.strerror)
-    except ValueError:
+    except ValueError as e:
         pass
     finally:
         print("Thread automatically closed")
@@ -198,67 +203,73 @@ def receive_and_put_in_list(client_socket, jpeg_list):
 
 def display_data(jpeg_list, status_list, disp_width, disp_height, resize):
     # Hide the Pygame support prompt
-    os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
+    try:
+        os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
-    pygame.init()   # Initialize Pygame
-    
-    display_surface = pygame.display.set_mode((disp_width, disp_height))
-    pygame.display.set_caption(f"Remote Desktop") # Set the window caption
-    clock = pygame.time.Clock()   # Create a clock object to control the frame rate
-
-    display = True     # Set the initial display flag
-
-    print("inside display data function")
-    # Main loop for updating the display
-    while display:
+        pygame.init()   # Initialize Pygame
         
-        for event in pygame.event.get():   # Check for Pygame events
-            # If the QUIT event is triggered (user closes the window)
-            if event.type == pygame.QUIT:
-                # Put "stop" into the status_list to signal the termination of the function
-                status_list.put("stop")
-                pygame.quit()  # Clean up Pygame resources
-                return
+        display_surface = pygame.display.set_mode((disp_width, disp_height))
+        pygame.display.set_caption(f"Remote Desktop") # Set the window caption
+        clock = pygame.time.Clock()   # Create a clock object to control the frame rate
 
-        # Retrieve JPEG data from the jpeg_list
-        jpeg_buffer = BytesIO(jpeg_list.get())
+        display = True     # Set the initial display flag
 
-        # Open the JPEG image using PIL
-        img = Image.open(jpeg_buffer)
+        print("inside display data function")
+        # Main loop for updating the display
+        while display:
+            
+            for event in pygame.event.get():   # Check for Pygame events
+                # If the QUIT event is triggered (user closes the window)
+                if event.type == pygame.QUIT:
+                    # Put "stop" into the status_list to signal the termination of the function
+                    status_list.put("stop")
+                    pygame.quit()  # Clean up Pygame resources
+                    return
 
-        # Convert the PIL image to a Pygame surface
-        py_image = pygame.image.frombuffer(img.tobytes(), img.size, img.mode)
+            # Retrieve JPEG data from the jpeg_list
+            jpeg_buffer = BytesIO(jpeg_list.get())
 
-        # If resize flag is True, resize the py_image to fit the display surface
-        if resize:
-            py_image = pygame.transform.scale(py_image, (disp_width, disp_height))
+            # Open the JPEG image using PIL
+            img = Image.open(jpeg_buffer)
 
-        jpeg_buffer.close()  # Close the JPEG buffer
+            # Convert the PIL image to a Pygame surface
+            py_image = pygame.image.frombuffer(img.tobytes(), img.size, img.mode)
 
-        # Draw the py_image onto the display surface at coordinates (0, 0)
-        display_surface.blit(py_image, (0, 0))
+            # If resize flag is True, resize the py_image to fit the display surface
+            if resize:
+                py_image = pygame.transform.scale(py_image, (disp_width, disp_height))
+
+            jpeg_buffer.close()  # Close the JPEG buffer
+
+            # Draw the py_image onto the display surface at coordinates (0, 0)
+            display_surface.blit(py_image, (0, 0))
+            
+        # Update the display
+            pygame.display.flip()
+            clock.tick(60) # Control the frame rate (targeting 60 FPS)
+    except Exception as e:
+        print("An error occurred in the display_data function:", str(e))     
         
-       # Update the display
-        pygame.display.flip()
-        clock.tick(60) # Control the frame rate (targeting 60 FPS)
         
-        
-def capture_screen(queue,disp_width,disp_height):
+def capture_screen(queue, disp_width, disp_height):
     print("inside capture screen function")
-    while True:
-        frame = ImageGrab.grab()  # Capture the screen frame
-        frame = frame.resize((disp_width, disp_height))  # Resize the frame
-        
-        # Add border to the frame
-        border_width = 10  # Width of the border in pixels
-        border_color = (255, 0, 0)  # Red color for the border (change as desired)
-        frame_with_border = Image.new('RGB', (disp_width + 2*border_width, disp_height + 2*border_width), border_color)
-        frame_with_border.paste(frame, (border_width, border_width))
-        # print("inside capture screen while loop function")
-        image_bytes = BytesIO()
-        frame_with_border.save(image_bytes, format='PNG')  # Convert the frame to PNG format
-        compressed_bytes = lz4.frame.compress(image_bytes.getvalue())  # Compress the frame
-        queue.put(compressed_bytes) 
+    try:
+        while True:
+            frame = ImageGrab.grab()  # Capture the screen frame
+            frame = frame.resize((disp_width, disp_height))  # Resize the frame
+            
+            # Add border to the frame
+            border_width = 10  # Width of the border in pixels
+            border_color = (255, 0, 0)  # Red color for the border (change as desired)
+            frame_with_border = Image.new('RGB', (disp_width + 2 * border_width, disp_height + 2 * border_width), border_color)
+            frame_with_border.paste(frame, (border_width, border_width))
+            
+            image_bytes = BytesIO()
+            frame_with_border.save(image_bytes, format='PNG')  # Convert the frame to PNG format
+            compressed_bytes = lz4.frame.compress(image_bytes.getvalue())  # Compress the frame
+            queue.put(compressed_bytes)
+    except Exception as e:
+        print("An error occurred in the capture_screen function:", str(e))
 
 
 def cleanup_process():
@@ -296,56 +307,62 @@ def computer_resolution(cli_width, cli_height, ser_width, ser_height):
 
 
 def remote_display():
-    global thread2, mouse_listner,keyboard_listner, process1, process2, remote_server_socket, mouse_event  
-    print("Send start message")
-    send_data(command_server_socket, HEADER_COMMAND_SIZE, bytes("start_capture", "utf-8"))
-    print("Start message sent")
-    disable_choice = messagebox.askyesno("Remote Box", "Disable remote device wallpaper?(yes,Turn black)")
-
-    remote_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)     # remote display sockets
-    remote_server_socket.connect((server_ip, 1234))
+    global thread2, mouse_listner, keyboard_listner, process1, process2, remote_server_socket, mouse_event  
+    try:
+        print("Send start message")
+        send_data(command_server_socket, HEADER_COMMAND_SIZE, bytes("start_capture", "utf-8"))
+        print("Start message sent")
+        
+        disable_choice = messagebox.askyesno("Remote Box", "Disable remote device wallpaper? (yes, Turn black)")
     
-    send_data(remote_server_socket, HEADER_COMMAND_SIZE, bytes(str(disable_choice), "utf-8"))
-    print("\n")
-    print(f">>Now you can CONTROL remote desktop")
-    resize_option = False
-    server_width, server_height = ImageGrab.grab().size
-    client_resolution = data_recive(remote_server_socket, 2, bytes(), 1024)[0].decode("utf-8")
-    print("Received client_resolution :", client_resolution)
-    client_width, client_height = client_resolution.split(",")
-
-    display_width, display_height = computer_resolution(int(client_width), int(client_height), server_width,  server_height)
-   
-    if (client_width, client_height) != (display_width, display_height):
-        resize_option = True
-
-    jpeg_sync_queue = Multiprocess_queue()  
-
-    thread2 = Thread(target=receive_and_put_in_list, name="recv_stream", args=(remote_server_socket, jpeg_sync_queue), daemon=True)
-    thread2.start()
+        remote_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)     # remote display sockets
+        remote_server_socket.connect((server_ip, 1234))
+        
+        send_data(remote_server_socket, HEADER_COMMAND_SIZE, bytes(str(disable_choice), "utf-8"))
+        print("\n")
+        print(f">> Now you can CONTROL remote desktop")
+        
+        resize_option = False
+        server_width, server_height = ImageGrab.grab().size
+        client_resolution = data_recive(remote_server_socket, 2, bytes(), 1024)[0].decode("utf-8")
+        print("Received client_resolution:", client_resolution)
+        client_width, client_height = client_resolution.split(",")
     
-    keyboard_listner = Key_listener(on_press=on_press, on_release=on_release)
-    keyboard_listner.start()
+        display_width, display_height = computer_resolution(int(client_width), int(client_height), server_width,  server_height)
+       
+        if (client_width, client_height) != (display_width, display_height):
+            resize_option = True
     
-    mouse_event = Multiprocess_queue()
-
-    process1 = Process(target=mouse_controlling, args=(remote_server_socket, mouse_event, resize_option, int(client_width), int(client_height), display_width, display_height), daemon=True)
-    process1.start()
-
-    mouse_listner = Mouse_listener(on_move=on_move, on_click=on_click, on_scroll=on_scroll)
-    mouse_listner.start()
+        jpeg_sync_queue = Multiprocess_queue()  
     
-    execution_status_list = Multiprocess_queue()
+        thread2 = Thread(target=receive_and_put_in_list, name="recv_stream", args=(remote_server_socket, jpeg_sync_queue), daemon=True)
+        thread2.start()
+        
+        keyboard_listner = Key_listener(on_press=on_press, on_release=on_release)
+        keyboard_listner.start()
+        
+        mouse_event = Multiprocess_queue()
     
-    process2 = Process(target=display_data, args=(jpeg_sync_queue, execution_status_list, display_width, display_height , resize_option), daemon=True)
-    process2.start()
+        process1 = Process(target=mouse_controlling, args=(remote_server_socket, mouse_event, resize_option, int(client_width), int(client_height), display_width, display_height), daemon=True)
+        process1.start()
     
-    thread3 = Thread(target=cleanup_display_process, args=(execution_status_list,), daemon=True)
-    thread3.start()
-    
-    screen_queue = Multiprocess_queue()
-    screen_capture_process = Process(target=capture_screen, args=(screen_queue, display_width, display_height,), daemon=True)
-    screen_capture_process.start()
+        mouse_listner = Mouse_listener(on_move=on_move, on_click=on_click, on_scroll=on_scroll)
+        mouse_listner.start()
+        
+        execution_status_list = Multiprocess_queue()
+        
+        process2 = Process(target=display_data, args=(jpeg_sync_queue, execution_status_list, display_width, display_height, resize_option), daemon=True)
+        process2.start()
+        
+        thread3 = Thread(target=cleanup_display_process, args=(execution_status_list,), daemon=True)
+        thread3.start()
+        
+        screen_queue = Multiprocess_queue()
+        screen_capture_process = Process(target=capture_screen, args=(screen_queue, display_width, display_height,), daemon=True)
+        screen_capture_process.start()
+        
+    except Exception as e:
+        print("An error occurred:", str(e))
 
 
 # Function to reset UI elements and clear entered password
@@ -374,6 +391,7 @@ def login_to_connect():
 
                 if connect_response != "1":
                     print("Wrong Password Entered...!")
+                    messagebox.showinfo('Password','Wrong password, Please enter correct password.')
                 else:
                     password_entered_time = time.time()
                     thread1 = Thread(target=listen_for_commands, daemon=True)
@@ -411,22 +429,26 @@ def login_to_connect():
                     show_frame(frame2)
                     expiration_thread = Thread(target=check_password_expiration, daemon=True)
                     expiration_thread.start()
-                    # disconnect_button.configure(state="normal")  # Enable
 
             except OSError as e:
-                print(e.strerror)
+                print(e.strerror)  
         else:
             print("Password is not 6 characters")
 
 
 def is_password_expired():
-    global command_server_socket,remote_server_socket,thread1,server_ip,file_server_socket,f_thread,chat_server_socket,password_entered_time
+    global command_server_socket, remote_server_socket, thread1, server_ip, file_server_socket, f_thread, chat_server_socket, password_entered_time
     if password_entered_time is not None:
         elapsed_time = time.time() - password_entered_time
-        if elapsed_time >= 30 * 60: # 30min elapsed_time >= 30 * 60: # 30min
-            print("Password expired")
+        if elapsed_time >= 30 * 60:  # 30 minutes
+            #logger.info("Password expired")
             messagebox.showinfo("Password Expired", "Your password has expired. Please login again.")
             root.destroy()
+            # close_sockets()
+            # lambda: show_frame(frame1)
+            # reset_ui()
+            # disconnect("message")
+
             # Reset the global variables
             command_server_socket = None
             remote_server_socket = None
@@ -438,14 +460,14 @@ def is_password_expired():
             password_entered_time = None
 
 
+
 def check_password_expiration():
     while True:
         is_password_expired()
-        time.sleep(60)
+        time.sleep(2)
 
 
 def close_sockets():
-    # service_socket_list = [command_server_socket, remote_server_socket,file_server_socket]
     service_socket_list = [command_server_socket, remote_server_socket,file_server_socket,chat_server_socket]
     for sock in service_socket_list:
         if sock:
@@ -469,7 +491,6 @@ def disconnect(btn_caller):
     connect_button.configure(state="normal")
 
     # Disable
-    # disconnect_button.configure(state="disabled")
     messagebox.showinfo("Disconnected", "You have been disconnected successfully.")
     
     
@@ -482,10 +503,8 @@ def listen_for_commands():
             if message == "disconnect":
                 listen = False
                
-    except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError) as e:
+    except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError,ValueError) as e:
         print(e.strerror)
-    except ValueError:
-        pass
     finally:
         disconnect("message")
         print("Thread automatically exit")
@@ -496,53 +515,101 @@ def file_path_listbox(event):
 
 
 forbidden_extensions = [".exe", ".dll"]
+# def send_files():
+#     selected_indices = listbox.curselection()
+#     if selected_indices:
+#         files = [listbox.get(index) for index in selected_indices]
+#         file_count = len(files)
+
+#         # # Send the number of files to the receiver
+#         # file_server_socket.send(str(file_count).encode())
+
+#         for file_path in files:
+#             filename = os.path.basename(file_path)
+#             extension = os.path.splitext(filename)[1].lower()
+
+#             if extension in forbidden_extensions:
+#                 # Ask for confirmation to send forbidden file types
+#                 result = messagebox.askquestion("Send File", f"Are you sure you want to send the file: {filename}?\nSending forbidden file types (.exe, .dll) can be risky.")
+#                 if result != "yes":
+#                     continue
+
+#             # Send the filename
+#             file_server_socket.send(filename.encode())
+
+#             # Send the file
+#             with open(file_path, "rb") as file:
+#                 while True:
+#                     data = file.read(1024)
+#                     if data:
+#                         file_server_socket.send(data)
+#                     break
+                    
+
+#             print(f"File sent: {filename}")
+
+#             # Close the socket after each file transfer
+#             # file_server_socket.close()
+
+#         print("All files sent.")
+#         connection_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+#         log_message = f"{file_count} files successfully sent at {connection_time}\n"
+
+#         # Write the log message to a file
+#         with open("client_connection_log.txt", "a") as file:
+#             file.write(log_message)
+#     else:
+#         messagebox.showwarning("No File Selected", "Please select at least one file to send.")
 
 def send_files():
     selected_indices = listbox.curselection()
     if selected_indices:
         files = [listbox.get(index) for index in selected_indices]
-        print(f"Sending files: {files}")
+        file_count = len(files)
 
-        for file in files:
-            filename = os.path.basename(file)
+        # Send the number of files to the receiver
+        # file_server_socket.send(str(file_count).encode())
+
+        for file_path in files:
+            filename = os.path.basename(file_path)
             extension = os.path.splitext(filename)[1].lower()
-            
+
             if extension in forbidden_extensions:
                 # Ask for confirmation to send forbidden file types
                 result = messagebox.askquestion("Send File", f"Are you sure you want to send the file: {filename}?\nSending forbidden file types (.exe, .dll) can be risky.")
                 if result != "yes":
-                    print(f"Skipping file: {filename}")
                     continue
-            
+
+            # Send the filename
             file_server_socket.send(filename.encode())
 
-            # Send the file
-            with open(file, "rb") as file:
+            # Send the file content
+            with open(file_path, "rb") as file:
                 while True:
                     data = file.read(1024)
-                    if not data:
+                    if data:
+                        file_server_socket.send(data)
+                    else:
                         break
-                    file_server_socket.send(data)
-            print(f"File sent: {file}")
+
+            print(f"File sent: {filename}")
 
         print("All files sent.")
         connection_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_message = f"{filename} File successfully sent at {connection_time}\n"
+        log_message = f"{file_count} files successfully sent at {connection_time}\n"
 
         # Write the log message to a file
         with open("client_connection_log.txt", "a") as file:
-            file.write(log_message) 
+            file.write(log_message)
     else:
-        print("No files selected.")
-        messagebox.showwarning("No File Selected", "Please select at least one file to send.")   
-   
-        
+        messagebox.showwarning("No File Selected", "Please select at least one file to send.")
+
+
 def browse_file():
     file_path = filedialog.askopenfilename()
     if file_path:
         listbox.insert(tk.END, file_path)
-        # file_server_socket.send(file_path)
-        
+      
         
 def ui_file():
     global window_file,listbox
@@ -556,7 +623,7 @@ def ui_file():
     frame = tk.Frame(window_file,width=700,height=700,bg='#2E2E2E')
     frame.pack(fill=tk.BOTH, expand=True)
 
-    heading_file = tk.Label(frame,text='Drag and Drop file here',font=("Helvetica", 14 ,"italic"),fg='white',bg='#2E2E2E')
+    heading_file = tk.Label(frame,text='Drag and Drop file here',font=("Verdana", 14 ,"italic"),fg='white',bg='#2E2E2E')
     # heading_file.place(x=0,y=0)
     heading_file.pack()
 
@@ -568,7 +635,7 @@ def ui_file():
         background='light blue',
         highlightbackground="dodger blue",
         highlightthickness=2
-        
+            
     )
     listbox.pack(fill=tk.X, side=tk.LEFT)
     # listbox.place(x=200,y=300)
@@ -585,58 +652,128 @@ def ui_file():
 
     button_frame = tk.Frame(window_file,bg="#8A8A8A")
     button_frame.pack(pady=10)
-    
+        
     send_data(command_server_socket, HEADER_COMMAND_SIZE, bytes("start_file_explorer", "utf-8"))
-    # select_file_process = Process(target=browse_file,  name="select_file_process", daemon=True)
-    # select_file_process.start()
-    
-    # send_file_process = Thread(target=send_files, name="send_file_process", daemon=True)
-    # send_file_process.start()
-    send_button = tk.Button(button_frame, text="Send Files", command=send_files ,compound=tk.TOP, bg="#8A8A8A", activebackground='#808080',activeforeground="white")
+        # # select_file_process = Process(target=browse_file,  name="select_file_process", daemon=True)
+        # # select_file_process.start()
+        
+        # # send_file_process = Thread(target=send_files, name="send_file_process", daemon=True)
+        # # send_file_process.start()
+        
+  
+        # send_data(command_server_socket, HEADER_COMMAND_SIZE, bytes("start_file_explorer", "utf-8"))
+    send_button = tk.Button(button_frame, text="Send Files", command=send_files, compound=tk.TOP,  bg="#8A8A8A", activebackground='#808080', activeforeground="white")
     send_button.pack(side=tk.LEFT, padx=0)
-    
 
-    browse_button = tk.Button(button_frame, text="Browse File", command=browse_file,compound=tk.TOP,bg="#8A8A8A", activebackground='#808080',activeforeground="white")
+    browse_button = tk.Button(button_frame, text="Browse File", command=browse_file, compound=tk.TOP, bg="#8A8A8A", activebackground='#808080', activeforeground="white")
     browse_button.pack(side=tk.LEFT, padx=0)
 
     window_file.mainloop()
+
+# def remote_display_screen():
+#     global thread2, process1, process2, remote_server_socket
     
+#     print("Send start message")
+#     send_data(command_server_socket, HEADER_COMMAND_SIZE, bytes("screen_sharing", "utf-8"))
+#     print("Start message sent")
     
+#     remote_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)     # remote display sockets
+#     remote_server_socket.connect((server_ip, 1234))
+    
+#     print("\n")
+#     print(">> Now you can SHARE SCREEN to remote desktop")
+    
+#     # Send permission request to the server
+#     send_data(remote_server_socket, 1, bytes("screen_sharing", "utf-8"))
+    
+#     # Receive permission response from the server
+#     permission_response = data_recive(remote_server_socket, 1, bytes(), 1024)[0].decode("utf-8")
+    
+#     if permission_response == "allow_access":
+#         print("Permission granted. Starting remote display screen.")
+        
+#         resize_option = False
+#         server_width, server_height = ImageGrab.grab().size
+        
+#         client_resolution = data_recive(remote_server_socket, 2, bytes(), 1024)[0].decode("utf-8")
+#         print("Received client_resolution:", client_resolution)
+#         client_width, client_height = client_resolution.split(",")
+
+#         display_width, display_height = computer_resolution(int(client_width), int(client_height), server_width, server_height)
+
+#         if (client_width, client_height) != (display_width, display_height):
+#             resize_option = True
+
+#         jpeg_sync_queue = Multiprocess_queue()  
+#         thread2 = Thread(target=receive_and_put_in_list, name="recv_stream", args=(remote_server_socket, jpeg_sync_queue), daemon=True)
+#         thread2.start()
+
+#         execution_status_list = Multiprocess_queue()
+#         process2 = Process(target=display_data, args=(jpeg_sync_queue, execution_status_list, display_width, display_height, resize_option), daemon=True)
+#         process2.start()
+
+#         thread3 = Thread(target=cleanup_display_process, args=(execution_status_list,), daemon=True)
+#         thread3.start()
+
+#         screen_queue = Multiprocess_queue()
+#         screen_capture_process = Process(target=capture_screen, args=(screen_queue, display_width, display_height,), daemon=True)
+#         screen_capture_process.start()
+#     else:
+#         print("Permission denied. Remote display screen access not granted.")
+
 def remote_display_screen():
-    global thread2, process1, process2, remote_server_socket 
+    global thread2, process1, process2, remote_server_socket
+
     print("Send start message")
     send_data(command_server_socket, HEADER_COMMAND_SIZE, bytes("screen_sharing", "utf-8"))
     print("Start message sent")
+
     remote_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)     # remote display sockets
     remote_server_socket.connect((server_ip, 1234))
+
     print("\n")
-    print(f">>Now you can SHARE SCREEN to remote desktop")
-    resize_option = False
-    server_width, server_height = ImageGrab.grab().size
-    client_resolution = data_recive(remote_server_socket, 2, bytes(), 1024)[0].decode("utf-8")
-    print("Received client_resolution :", client_resolution)
-    client_width, client_height = client_resolution.split(",")
+    print(">> Now you can SHARE SCREEN to remote desktop")
 
-    display_width, display_height = computer_resolution(int(client_width), int(client_height), server_width, server_height)
+    # Send permission request to the server
+    # send_data(remote_server_socket, 1, bytes("screen_sharing", "utf-8"))
 
-    if (client_width, client_height) != (display_width, display_height):
-        resize_option = True
+    # Receive permission response from the server
+    permission_response = data_recive(remote_server_socket, 1, bytes(), 1024)[0].decode("utf-8")
 
-    jpeg_sync_queue = Multiprocess_queue()  
-    thread2 = Thread(target=receive_and_put_in_list, name="recv_stream", args=(remote_server_socket, jpeg_sync_queue), daemon=True)
-    thread2.start()
+    if permission_response == "allow_access":
+        print("Permission granted. Starting remote display screen.")
+
+        resize_option = False
+        server_width, server_height = ImageGrab.grab().size
+
+        client_resolution = data_recive(remote_server_socket, 2, bytes(), 1024)[0].decode("utf-8")
+        print("Received client_resolution:", client_resolution)
+        client_width, client_height = client_resolution.split(",")
+
+        display_width, display_height = computer_resolution(int(client_width), int(client_height), server_width, server_height)
+
+        if (client_width, client_height) != (display_width, display_height):
+            resize_option = True
+
+        jpeg_sync_queue = Multiprocess_queue()
+        thread2 = Thread(target=receive_and_put_in_list, name="recv_stream", args=(remote_server_socket, jpeg_sync_queue), daemon=True)
+        thread2.start()
+
+        execution_status_list = Multiprocess_queue()
+        process2 = Process(target=display_data, args=(jpeg_sync_queue, execution_status_list, display_width, display_height, resize_option), daemon=True)
+        process2.start()
+
+        thread3 = Thread(target=cleanup_display_process, args=(execution_status_list,), daemon=True)
+        thread3.start()
+
+        screen_queue = Multiprocess_queue()
+        screen_capture_process = Process(target=capture_screen, args=(screen_queue, display_width, display_height,), daemon=True)
+        screen_capture_process.start()
+    else:
+        print("Permission denied. Remote display screen access not granted.")
     
-    execution_status_list = Multiprocess_queue()
-    process2 = Process(target=display_data, args=(jpeg_sync_queue, execution_status_list, display_width, display_height , resize_option), daemon=True)
-    process2.start()
     
-    thread3 = Thread(target=cleanup_display_process, args=(execution_status_list,), daemon=True)
-    thread3.start()
-    
-    screen_queue = Multiprocess_queue()
-    screen_capture_process = Process(target=capture_screen, args=(screen_queue, display_width, display_height,), daemon=True)
-    screen_capture_process.start()
-
+     
 
 def animate_text(label, text, delay, index=0):
     label.config(text=text[:index])
@@ -644,9 +781,11 @@ def animate_text(label, text, delay, index=0):
     if index <= len(text):
         label.after(delay, animate_text, label, text, delay, index)
 
+
 def on_enter(event):
     sign_in_btn['background'] = '#1f8cff'
     # connect_button['background'] = '#1f8cff'
+
 
 def on_leave(event):
     sign_in_btn['background'] = '#28adff'
@@ -657,25 +796,53 @@ def open_facebook():
     webbrowser.open_new(r"https://www.facebook.com/multispanindia")
     print('hello facebook')
 
+
 def open_instagram():
     webbrowser.open_new(r"https://www.instagram.com/multispanindia")
     print('hello instagram')
+    
     
 def open_tweeter():
     webbrowser.open_new(r"https://twitter.com/multispanindia")
     print('hello facebook')
     
+    
 def open_linkedin():
     webbrowser.open_new(r"https://www.linkedin.com/company/multispancontrolinstruments")
     print('hello linkedin')
 
-def display_text_file():
-    filename = './client_connection_log.txt'
-    with open(filename, 'r') as file:
-        content = file.read()
-        file_text.delete('1.0', tk.END)  # Clear previous content
-        file_text.insert(tk.END, content)
 
+def display_text_file():
+    # filename = 'client_connection_log.txt'
+    # with open(filename, 'r') as file:
+    #     content = file.read()
+    #     file_text.delete('1.0', tk.END)  # Clear previous content
+    #     file_text.insert(tk.END, content)
+    filename = 'client_connection_log.txt'
+    
+    try:
+        with open(filename, 'r') as file:
+            content = file.read()
+            file_text.delete('1.0', tk.END)  # Clear previous content
+            file_text.insert(tk.END, content)
+    except FileNotFoundError:
+        # File doesn't exist, create it
+        messagebox.showinfo('File Not Found', 'The file does not exist. Creating a new file.')
+        
+        
+        try:
+            with open(filename, 'w') as file:
+                # Optional: Write some initial content to the file
+                file.write('Initial content \n')
+                
+            # Display the newly created file's content
+            display_text_file()
+        except Exception as e:
+            messagebox.showerror('Error', f'An error occurred while creating the file: {str(e)}')
+    except Exception as e:
+        messagebox.showerror('Error', f'An error occurred while reading the file: {str(e)}')
+    
+    
 def apply_filter():
     filter_text = search_entry.get().lower()
 
@@ -695,7 +862,6 @@ def add_chat_display(msg, name):
     text_chat_tab.configure(state=tk.NORMAL,fg="white",padx=5,pady=10)
     text_chat_tab.insert(tk.END, "\n")
     text_chat_tab.insert(tk.END, name + ": " + formatted_message)
-    text_chat_tab.tag_config(foreground="red")
     text_chat_tab.configure(state="disabled")
 
 def send_message():
@@ -717,8 +883,7 @@ def receive_message():
     try:
         while True:
             msg = data_recive(chat_server_socket, CHAT_HEADER_SIZE, bytes())[0].decode("utf-8")
-            # text_chat_tab.tag_config(fg="red")
-            print('receive_message',msg)
+            # print('receive_message',msg)
             add_chat_display(msg, REMOTE_NAME)
             
              # Save the message to the chat log file
@@ -726,10 +891,11 @@ def receive_message():
             if not is_chat_window_open():
                 messagebox.showinfo("New Message", "You have a new message!")
 
-    except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError) as e:
+    except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError,ValueError) as e:
         print(e.strerror)
-    except ValueError:
-        pass
+
+
+   
 
 def is_chat_window_open():
     return chat_frame.winfo_exists() and chat_frame.winfo_viewable()
@@ -738,12 +904,25 @@ def is_chat_window_open():
 # File to save the chat messages
 chat_log_file = "chat_log.txt"
 
-def save_to_chat_log(msg,sender_name):
+def save_to_chat_log(msg, sender_name):
     current_time = datetime.now().strftime("%H:%M:%S")
     formatted_message = f"[{current_time}] {sender_name} {msg}"
     with open(chat_log_file, "a") as file:
         file.write(formatted_message + "\n")
-        
+
+
+def toggle_password_visibility():
+    global show_password
+    show_password = not show_password
+    if show_password:
+        password_entry.config(show="")
+        show_hide_button.config(image=show)
+    else:
+        password_entry.config(show="*")
+        show_hide_button.config(image=hide)
+
+
+
      
 if __name__ == "__main__":
     
@@ -813,14 +992,14 @@ if __name__ == "__main__":
     card_frame0 = tk.Frame(frame1, bg='#f2f2f2', padx=20, pady=20)
     card_frame0.place(x=223, y=320)
 
-    heading1_label = tk.Label(card_frame0, text='Provide help', font=('Rubik', 23, 'bold'), fg='black', bg='#f2f2f2', padx=25)
+    heading1_label = tk.Label(card_frame0, text='Provide help', font=('Verdana', 23, 'bold'), fg='black', bg='#f2f2f2', padx=25)
     heading1_label.pack(anchor='w')
 
     # separator = ttk.Separator(card_frame0, orient='horizontal', style='info.Horizontal.TSeparator')
     # separator.pack(fill='x', pady=5,padx=20)
 
-    heading2_label = tk.Label(card_frame0, text='Remotely access and control.', font=('Rubik', 18, 'bold'), fg='black', bg='#f2f2f2', justify='left')
-    heading2_label.pack()
+    heading2_label = tk.Label(card_frame0, text='Remotely access and control.', font=('Verdana', 18, 'bold'), fg='black', bg='#f2f2f2')
+    heading2_label.pack(anchor='w',padx=25)
 
     text_to_animate_1 = heading1_label.cget('text')
     text_to_animate_2 = heading2_label.cget('text')
@@ -831,70 +1010,78 @@ if __name__ == "__main__":
 
 
     paragraph_label = tk.Label(card_frame0, text='''
-    Sign in to TeamViewer Remote to view, control and
+    Sign in to Remote desktop to remotely view, control and
     access any device.
-    ''', font=('Rubik', 13), fg='gray', bg='#f2f2f2', justify='left',padx=0,pady=0)
+    ''', font=('Verdana', 11), fg='gray', bg='#f2f2f2', justify='left',padx=0,pady=0)
     paragraph_label.pack(anchor='w')
     # paragraph_label.place(x=2,y=100)
 
-    sign_in_btn = tk.Button(card_frame0,text='SIGN IN',width=13,height=2,bg='#28adff',fg='white', font=('Rubik', 12, 'bold'))
+    sign_in_btn = tk.Button(card_frame0,text='SIGN IN',width=13,height=2,bg='#28adff',fg='white', font=('Verdana', 12, 'bold'))
     sign_in_btn.pack()
     # sign_in_btn.place(x=25,y=150)
     
 
     style = ttk.Style()
-    style.configure('Custom.TButton', background='#28adff', foreground='white', font=('Rubik', 12, 'bold'))
+    style.configure('Custom.TButton', background='#28adff', foreground='white', font=('Verdana', 12, 'bold'))
 
     sign_in_btn.bind("<Enter>", on_enter)
     sign_in_btn.bind("<Leave>", on_leave)
 
-    dont_have_account_text =  tk.Label(card_frame0, text="Don't have an account? ", font=('Rubik', 11), fg='gray', bg='#f2f2f2',padx=25)
-    dont_have_account_text.pack(anchor='w')
+    dont_have_account_text =  tk.Label(card_frame0, text="Don't have an account? ", font=('Verdana', 11), fg='gray', bg='#f2f2f2',padx=25)
+    dont_have_account_text.pack(anchor='w',pady=5)
     # dont_have_account_text.place(x=200,y=580)
 
-    dont_have_account_text1 =  tk.Label(card_frame0, text="Create one here.", font=('Rubik', 11), fg='#28adff', bg='#f2f2f2')
+    dont_have_account_text1 =  tk.Label(card_frame0, text="Create one here.", font=('Verdana', 11), fg='#28adff', bg='#f2f2f2')
     dont_have_account_text1.pack()
-    dont_have_account_text1.place(x=180,y=210)
+    dont_have_account_text1.place(x=205,y=210)
 
 
     # right side
     # Create a card frame
     card_frame = tk.Frame(frame1, bg='#f8f9f9', padx=20, pady=20)
-    card_frame.place(x=650, y=300)
+    card_frame.place(x=700, y=300)
     card_frame.pack(expand=True)
 
     # Heading
-    heading_label = tk.Label(card_frame, text='Get Started', font=('Rubik', 18, 'bold'), fg='black', bg='#f8f9f9')
-    heading_label.pack(anchor='w', pady=(0, 5))
+    heading_label = tk.Label(card_frame, text='Get Started', font=('Verdana', 18, 'bold'), fg='black', bg='#f8f9f9')
+    heading_label.pack(anchor='w', pady=(0, 5),padx=18)
 
     # Paragraph
-    paragraph = tk.Label(card_frame, text='Support session', font=('Rubik', 13, 'bold'), fg='black', bg='#f8f9f9')
-    paragraph.pack(anchor='w')
+    paragraph = tk.Label(card_frame, text='Support session', font=('Verdana', 13, 'bold'), fg='black', bg='#f8f9f9')
+    paragraph.pack(anchor='w',padx=18)
     paragraph1 = tk.Label(card_frame, text='''
     Enter the session code provided by your expert to grant
     them access to your device and start receiving support.
-    ''', font=('Rubik', 10), fg='gray', bg='#f8f9f9', justify='left')
+    ''', font=('Verdana', 11), fg='gray', bg='#f8f9f9')
     paragraph1.pack(anchor='w')
 
     # # Create the input frame
-    input_frame = tk.Frame(card_frame, padx=10, pady=10, bg='#f8f9f9')
+    input_frame = tk.Frame(card_frame, padx=20, pady=10, bg='#f8f9f9')
     input_frame.pack()
 
     # Create the IP label and entry
-    IP_label = tk.Label(input_frame, text="USERNAME     : ",  font=('Rubik', 11, 'bold'), bg='#f8f9f9')
+    IP_label = tk.Label(input_frame, text="USERNAME     : ",  font=('Verdana', 11, 'bold'), bg='#f8f9f9')
     IP_label.grid(row=0, column=0, sticky=tk.W)
 
-    name_entry = ttk.Entry(input_frame, font=('Rubik', 12), style='info.TEntry', width=20, foreground='gray')
+    name_entry = ttk.Entry(input_frame, font=('Verdana', 12), style='info.TEntry', width=20, foreground='black')
     name_entry.grid(row=0, column=1, ipadx=20, ipady=5, pady=5)
 
     # Create the password label and entry
-    password_label = tk.Label(input_frame, text="ENTRY CODE : ", font=('Rubik', 11, 'bold'), bg='#f8f9f9')
+    password_label = tk.Label(input_frame, text="ENTRY CODE : ", font=('Verdana', 11, 'bold'), bg='#f8f9f9')
     password_label.grid(row=1, column=0, sticky=tk.W)
 
-    password_entry = ttk.Entry(input_frame, font=('Rubik', 12), show="*", style='info.TEntry', width=20, foreground='gray')
+    password_entry = ttk.Entry(input_frame, font=('Verdana', 12), show="*", style='info.TEntry', width=20, foreground='black')
     password_entry.grid(row=1, column=1, ipadx=20, ipady=5, pady=5)
 
-    connect_button = tk.Button(input_frame, text="Connect", font=('Rubik', 12,'bold'), bg='#28adff', fg='white')
+    # Create the show/hide button
+    show_password = False
+    show = tk.PhotoImage(file='./assets/man.png')
+    hide = tk.PhotoImage(file='./assets/newspaper.png')
+    show_hide_button = tk.Button(input_frame, image=hide, font=('Verdana', 10), command=toggle_password_visibility,bg='#f8f9f9',relief=tk.FLAT)
+    show_hide_button.grid(row=1, column=2, padx=5)
+ 
+
+    connect_button = tk.Button(input_frame, text="Connect", font=('Verdana', 12,'bold'), bg='#28adff', fg='white')
     connect_button.grid(row=2, column=1, padx=5, sticky=tk.N, pady=5)
     connect_button.configure(width=22, height=1)
     connect_button.config(command=login_to_connect)
@@ -925,7 +1112,7 @@ if __name__ == "__main__":
     link_btn = tk.Button(social,image=linkedin,relief=tk.FLAT,command=open_linkedin)
     link_btn.pack(side='left',padx=15)
     
-    paragraph2 = tk.Label(frame1, text='Copyright © 2023 Multispan India. All rights reserved', font=('Rubik', 10), fg='gray', bg='#f2f2f2')
+    paragraph2 = tk.Label(frame1, text='Copyright © 2023 Multispan India. All rights reserved', font=('Verdana', 10), fg='gray', bg='#f2f2f2')
     paragraph2.pack(anchor=tk.CENTER)
     
     separator2 = ttk.Separator(frame1, orient='horizontal', style='info.Horizontal.TSeparator')
@@ -950,12 +1137,12 @@ if __name__ == "__main__":
     search_container.pack(padx=10, pady=10)
 
     # Create the search bar
-    search_bar = tk.Entry(search_container, font=("Rubik", 14), width=50)
+    search_bar = tk.Entry(search_container, font=("Verdana", 14), width=50)
     search_bar.pack(side="left")
 
     # Create the search icon
     search_img = tk.PhotoImage(file='assets/magnifying-glass.png')
-    search_icon = tk.Label(search_container, image=search_img, font=("Rubik", 14), bg="#8A8A8A")
+    search_icon = tk.Label(search_container, image=search_img, font=("Verdana", 14), bg="#8A8A8A")
     search_icon.pack(side="left", padx=5)
 
     user = tk.PhotoImage(file='assets/user.png')
@@ -968,18 +1155,18 @@ if __name__ == "__main__":
 
     # Create the sidebar content
     home_img = tk.PhotoImage(file='assets/img/icons8-home-50.png')
-    home_icon = tk.Button(sidebar_frame, image=home_img, font=("Rubik", 16), bg="white",fg='white',relief='flat', borderwidth=0,)
+    home_icon = tk.Button(sidebar_frame, image=home_img, font=("Verdana", 16), bg="white",fg='white',relief='flat', borderwidth=0,)
     home_icon.pack(padx=10, pady=10)
 
     file_img = tk.PhotoImage(file='assets/img/icons8-downlod-64.png')
-    file_icon = tk.Button(sidebar_frame, image=file_img, font=("Rubik", 16), bg="white",fg='white',relief='flat', borderwidth=0)
+    file_icon = tk.Button(sidebar_frame, image=file_img, font=("Verdana", 16), bg="white",fg='white',relief='flat', borderwidth=0)
     file_icon.pack(padx=10, pady=10)
     
     dashboard = tk.PhotoImage(file='assets/dashboard.png')
-    dashboard_icon = tk.Button(sidebar_frame, image=dashboard, font=("Rubik", 16), bg="white",fg='white',relief='flat', borderwidth=0,command=lambda:show_frame(frame4))
+    dashboard_icon = tk.Button(sidebar_frame, image=dashboard, font=("Verdana", 16), bg="white",fg='white',relief='flat', borderwidth=0,command=lambda:show_frame(frame4))
     dashboard_icon.pack(padx=10, pady=10)
 
-    logout = tk.Button(sidebar_frame,text="Logout", font=("Rubik", 10), bg="white",fg='black',relief='flat')
+    logout = tk.Button(sidebar_frame,text="Logout", font=("Verdana", 10), bg="white",fg='black',relief='flat')
     logout.config(command=lambda:show_frame(frame1))
     logout.pack()
 
@@ -995,7 +1182,7 @@ if __name__ == "__main__":
     grid_frame1 = tk.Frame(content_frame,bg='#8A8A8A', padx=0, pady=10)
     grid_frame1.pack(side="left")
 
-    label = tk.Label(grid_frame1, text='Remote Actions', font=('Rubik', 14, 'bold'), bg='#8A8A8A',fg='white')
+    label = tk.Label(grid_frame1, text='Remote Actions', font=('Verdana', 14, 'bold'), bg='#8A8A8A',fg='white')
     label.grid(row=0, column=0, columnspan=2, pady=10)
 
     # Create the card labels
@@ -1023,20 +1210,20 @@ if __name__ == "__main__":
 
     # Add text labels below the icons
 
-    text1 = tk.Label(grid_frame1, text="Remote Access", font=('Rubik', 12, 'bold'), bg='#8A8A8A',fg='white')
+    text1 = tk.Label(grid_frame1, text="Remote Access", font=('Verdana', 12, 'bold'), bg='#8A8A8A',fg='white')
     sub_text1 = tk.Label(grid_frame1, text="""Set up for Remote
-    desktop control""", font=('Rubik', 10),bg='#8A8A8A',fg='#DCDEE6', pady=1,justify= tk.LEFT)
+    desktop control""", font=('Verdana', 10),bg='#8A8A8A',fg='#DCDEE6', pady=1,justify= tk.LEFT)
 
-    text2 = tk.Label(grid_frame1, text="Screen Share", font=('Rubik', 12, 'bold'),bg='#8A8A8A',fg='white')
+    text2 = tk.Label(grid_frame1, text="Screen Share", font=('Verdana', 12, 'bold'),bg='#8A8A8A',fg='white')
     sub_text2 = tk.Label(grid_frame1, text="""Start with sharing
-    your screen""", font=('Rubik', 10),bg='#8A8A8A',fg='#DCDEE6', pady=1,justify= tk.LEFT)
+    your screen""", font=('Verdana', 10),bg='#8A8A8A',fg='#DCDEE6', pady=1,justify= tk.LEFT)
 
-    text3 = tk.Label(grid_frame1, text="File Transfer", font=('Rubik', 12, 'bold'),bg='#8A8A8A',fg='white')
-    sub_text3 = tk.Label(grid_frame1, text="""Transfer files""", font=('Rubik', 10),bg='#8A8A8A',fg='#DCDEE6', pady=1,justify= tk.LEFT)
+    text3 = tk.Label(grid_frame1, text="File Transfer", font=('Verdana', 12, 'bold'),bg='#8A8A8A',fg='white')
+    sub_text3 = tk.Label(grid_frame1, text="""Transfer files""", font=('Verdana', 10),bg='#8A8A8A',fg='#DCDEE6', pady=1,justify= tk.LEFT)
 
-    text4 = tk.Label(grid_frame1, text="Chat", font=('Rubik', 12, 'bold'),bg='#8A8A8A',fg='white')
+    text4 = tk.Label(grid_frame1, text="Chat", font=('Verdana', 12, 'bold'),bg='#8A8A8A',fg='white')
     sub_text4 = tk.Label(grid_frame1, text="""Start chat with your
-    loved ones""", font=('Rubik', 10),bg='#8A8A8A',fg='#DCDEE6', pady=1,justify= tk.LEFT)
+    loved ones""", font=('Verdana', 10),bg='#8A8A8A',fg='#DCDEE6', pady=1,justify= tk.LEFT)
 
 
     # Grid layout for cards and text labels
@@ -1056,7 +1243,7 @@ if __name__ == "__main__":
     text4.grid(row=5, column=1, padx=30)
     sub_text4.grid(row=6, column=1, padx=30)
 
-    heading_text = tk.Label(grid_frame, text='Start Your Journey With Us', font=('Rubik', 25,'bold'),bg='white',fg='black')
+    heading_text = tk.Label(grid_frame, text='Start Your Journey With Us', font=('Verdana', 25,'bold'),bg='white',fg='black')
     heading_text.pack()
 
     pera = tk.Label(grid_frame,text="""
@@ -1066,11 +1253,11 @@ if __name__ == "__main__":
     malpractice and protect users from scammers by providing
     more transparency about the connection origin. Overall 
     ensuring a higher level of security.\n
-    TeamViewer is now easier to use and more accessible. 
+    Remote desktop is now easier to use and more accessible. 
     Easier to navigate, faster to train on, more intuitive to use             
-    """, font=('Rubik', 11),bg='white',fg='#8A8A8A',justify= tk.LEFT).pack()
+    """, font=('Verdana', 11),bg='white',fg='#8A8A8A',justify= tk.LEFT).pack()
     
-    paragraph3 = tk.Label(frame2, text='Copyright © 2023 Multispan India. All rights reserved', font=('Rubik', 10), fg='black', bg='#DDCEB5')
+    paragraph3 = tk.Label(frame2, text='Copyright © 2023 Multispan India. All rights reserved', font=('Verdana', 10), fg='black', bg='#DDCEB5')
     paragraph3.pack(anchor=tk.CENTER)
     
     
@@ -1083,14 +1270,14 @@ if __name__ == "__main__":
     heading_frame = tk.Frame(frame3,bg="black")
     heading_frame.pack(fill="x", padx=450, pady=20)
     # Text
-    heading_label = tk.Label(heading_frame, text="Chat Room", font=("Rubik", 14,"bold"),  bg="black", fg="white",anchor="center")
+    heading_label = tk.Label(heading_frame, text="Chat Room", font=("Verdana", 14,"bold"),  bg="black", fg="white",anchor="center")
     heading_label.pack(side="left", padx=5,pady=5)
     
     chat_frame = tk.LabelFrame(frame3, padx=20, pady=20, bd=0 , width=50,height=5,background="black" ,fg='white')
     chat_frame.pack()
 
 
-    text_chat_tab = scrolledtext.ScrolledText(chat_frame,bd=0, width=40, height=20,font=("Arial", 12),background="black",fg='white')
+    text_chat_tab = scrolledtext.ScrolledText(chat_frame,bd=0, width=40, height=20,font=("Verdana", 12),background="black",fg='white')
     # text_chat_tab.vbar.config(troughcolor = 'red', bg = 'blue')
     text_chat_tab.pack(padx=10,pady=10)
     text_chat_tab.configure(state="disabled")
@@ -1100,7 +1287,7 @@ if __name__ == "__main__":
     input_text_frame.pack()
 
     input_text_widget = tk.Entry(input_text_frame, width=40,background="black" , highlightcolor="blue",fg='white')
-    input_text_widget.configure(font=("arial", 14))
+    input_text_widget.configure(font=("Verdana", 14))
     input_text_widget.bind("<Return>", send_message)
     input_text_widget.pack(side="left", padx=5,pady=5)
 
@@ -1126,7 +1313,7 @@ if __name__ == "__main__":
     search_container2.pack(padx=10, pady=5)
 
     # Create a filter input Entry widget
-    search_entry = tk.Entry(search_container2,font=("Rubik", 14), width=50)
+    search_entry = tk.Entry(search_container2,font=("Verdana", 14), width=50)
     search_entry.pack(padx=10, pady=5,side="left")
 
     # Create the search icon
@@ -1144,16 +1331,16 @@ if __name__ == "__main__":
     sidebar_frame2.pack(fill="y", side="left")
 
     # Create the sidebar content
-    home_icon2 = tk.Button(sidebar_frame2, image=home_img, font=("Rubik", 16), bg="white",fg='white',relief='flat', borderwidth=0,command=lambda:show_frame(frame2))
+    home_icon2 = tk.Button(sidebar_frame2, image=home_img, font=("Verdana", 16), bg="white",fg='white',relief='flat', borderwidth=0,command=lambda:show_frame(frame2))
     home_icon2.pack(padx=10, pady=10)
 
-    file_icon2 = tk.Button(sidebar_frame2, image=file_img, font=("Rubik", 16), bg="white",fg='white',relief='flat', borderwidth=0)
+    file_icon2 = tk.Button(sidebar_frame2, image=file_img, font=("Verdana", 16), bg="white",fg='white',relief='flat', borderwidth=0)
     file_icon2.pack(padx=10, pady=10)
 
-    dashboard_icon2 = tk.Button(sidebar_frame2, image=dashboard, font=("Rubik", 16), bg="white",fg='white',relief='flat', borderwidth=0,command=lambda:show_frame(frame4))
+    dashboard_icon2 = tk.Button(sidebar_frame2, image=dashboard, font=("Verdana", 16), bg="white",fg='white',relief='flat', borderwidth=0,command=lambda:show_frame(frame4))
     dashboard_icon2.pack(padx=10, pady=10)
 
-    logout2 = tk.Button(sidebar_frame2,text="Logout", font=("Rubik", 10), bg="white",fg='black',relief='flat')
+    logout2 = tk.Button(sidebar_frame2,text="Logout", font=("Verdana", 10), bg="white",fg='black',relief='flat')
     logout2.config(command=lambda:show_frame(frame1))
     logout2.pack()
 
@@ -1162,7 +1349,7 @@ if __name__ == "__main__":
     text_frame.pack(fill=tk.BOTH, expand=True)
 
     # Create a Text widget for file data
-    file_text = tk.Text(text_frame, font=('arial',12), wrap=tk.WORD)
+    file_text = tk.Text(text_frame, font=('Verdana',12), wrap=tk.WORD)
     file_text.pack(fill=tk.BOTH,expand=True)
     
     # Center the text in the frame
@@ -1172,7 +1359,7 @@ if __name__ == "__main__":
     # Add a tag for highlighting filtered text
     file_text.tag_configure('highlight', background='yellow')
     
-    paragraph3 = tk.Label(frame4, text='Copyright © 2023 Multispan India. All rights reserved', font=('Rubik', 10), fg='gray', bg='#f2f2f2')
+    paragraph3 = tk.Label(frame4, text='Copyright © 2023 Multispan India. All rights reserved', font=('Verdana', 10), fg='gray', bg='#f2f2f2')
     paragraph3.pack(anchor=tk.CENTER)
 
     display_text_file() # Display connection log in screen
